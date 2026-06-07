@@ -1,67 +1,19 @@
-﻿using ProtoBuf;
+﻿using Microsoft.VisualBasic;
+using ProtoBuf;
+using SharpMap.Client;
+using SharpMap.Server;
+using System.IO;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
+using Vintagestory.API.Config;
 using Vintagestory.API.Server;
 
 namespace SharpMap
 {
-	[ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
-	public class Init
-	{
-
-	}
-
-	[ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
-	public class LayerData
-	{
-
-	}
-
-	[ProtoContract(ImplicitFields = ImplicitFields.AllPublic)]
-	public class LayerUpdate
-	{
-		public int LayerId {  get; set; }
-		public int RegionId { get; set; }
-	}
-
-	public class ServerProvider
-	{
-		public void Process(IServerPlayer player, LayerUpdate update)
-		{
-
-		}
-	}
-
-	public interface IClientProvider
-	{
-		void Process(LayerData data);
-	}
-
-	public class HeadlessClientProvider : IClientProvider
-	{
-		public void Process(LayerData data)
-		{
-
-		}
-	}
-
-	public class ClientProvider : IClientProvider
-	{
-		public void Process(LayerData data)
-		{
-
-		}
-	}
-
-	public class LayerManager
-	{
-
-	}
-
 	public class SharpMapModSystem : ModSystem
 	{
 		ServerProvider? _serverProvider;
-		IClientProvider? _clientProvider;
+		ClientProvider? _clientProvider;
 
 		public override void Start(ICoreAPI api)
 		{
@@ -82,9 +34,10 @@ namespace SharpMap
 
 		public override void StartServerSide(ICoreServerAPI api)
 		{
-			_serverProvider = new ServerProvider();
+			var db = new ServerDB(GetDBPath());
+			_serverProvider = new(db);
 
-			ApiModHelper.GetServerChannel()
+			ApiModHelper.GetServerChannel()?
 				.SetMessageHandler<LayerUpdate>(_serverProvider.Process);
 
 			api.Event.PlayerJoin += PlayerJoin;
@@ -92,17 +45,17 @@ namespace SharpMap
 
 		void PlayerJoin(IServerPlayer player)
 		{
-			ApiModHelper.GetServerChannel().SendPacket(new Init(), player);
+			ApiModHelper.GetServerChannel()?.SendPacket(new Init(), player);
 		}
 
 		public override void StartClientSide(ICoreClientAPI api)
 		{
-			ApiModHelper.GetClientChannel()
-				.SetMessageHandler<Init>(data =>
-				{
-					_clientProvider = new ClientProvider();
-				})
-				.SetMessageHandler<LayerData>(_clientProvider!.Process);
+			var db = new ClientDB(GetDBPath());
+			_clientProvider = new(db);
+
+			ApiModHelper.GetClientChannel()?
+				.SetMessageHandler<Init>(_clientProvider.Init)
+				.SetMessageHandler<LayerData>(_clientProvider.Process);
 		}
 
 		public override void AssetsFinalize(ICoreAPI api)
@@ -111,7 +64,15 @@ namespace SharpMap
 			{
 				return;
 			}
-			_clientProvider = new HeadlessClientProvider();
+			_clientProvider?.Init();
+		}
+
+		static string GetDBPath()
+		{
+			string dir = Path.Combine(GamePaths.DataPath, "ModData", ApiModHelper.SaveGameId);
+			GamePaths.EnsurePathExists(dir);
+
+			return Path.Combine(dir, "customRegions.db");
 		}
 	}
 }

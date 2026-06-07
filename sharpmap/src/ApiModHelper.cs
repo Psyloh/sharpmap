@@ -28,6 +28,10 @@ namespace SharpMap
 			set => _mod = value;
 		}
 
+		static ICoreAPI Api => _sApi as ICoreAPI ?? _cApi as ICoreAPI ?? throw new Exception("Apis are null");
+
+		public static string SaveGameId => Api.World.SavegameIdentifier;
+
 		public static void Error(string message) => Mod.Logger.Error(message);
 		public static void Error(Exception ex) => Mod.Logger.Error(ex);
 		public static void Warning(string message) => Mod.Logger.Warning(message);
@@ -35,8 +39,8 @@ namespace SharpMap
 
 		public static string ModId => Mod.Info.ModID;
 
-		public static IClientNetworkChannel GetClientChannel() => CApi.Network.GetChannel(ModId);
-		public static IServerNetworkChannel GetServerChannel() => SApi.Network.GetChannel(ModId);
+		public static IClientNetworkChannel? GetClientChannel() => CApi.Network.GetChannel(ModId);
+		public static IServerNetworkChannel? GetServerChannel() => SApi.Network.GetChannel(ModId);
 
 
 	}
