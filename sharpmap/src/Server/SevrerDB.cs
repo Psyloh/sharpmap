@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Threading.Tasks;
 using Vintagestory.API.Common;
 
 namespace SharpMap.Server
@@ -15,9 +16,9 @@ namespace SharpMap.Server
 	{
 		readonly ConcurrentQueue<IDBUpdate> _changes = [];
 
-		Thread? _changeReader;
-		readonly ManualResetEventSlim _sync = new(false);
-		readonly CancellationTokenSource _tokenSource = new();
+		Task? _queueReader;
+		readonly SemaphoreSlim _lock = new(0, 1);
+		readonly CancellationTokenSource _cancellation = new();
 
 		public ServerDB(string path) : base(ApiModHelper.Mod.Logger)
 		{
@@ -31,11 +32,7 @@ namespace SharpMap.Server
 		//automatically called on open
 		public override void OnOpened()
 		{
-			_changeReader = new(ProcessQueue)
-			{
-				IsBackground = true,
-				Name = "serverDB"
-			};
+			_queueReader = Task.Run(ProcessQueue);
 
 			//connection setup like enabling foreign keys
 			//read the inherited class code : some optimizations are already enabled from open flags
@@ -49,15 +46,15 @@ namespace SharpMap.Server
 
 		public void PushChange(IDBUpdate change)
 		{
-			ObjectDisposedException.ThrowIf(_tokenSource.IsCancellationRequested, this);
+			ObjectDisposedException.ThrowIf(_cancellation.IsCancellationRequested, this);
 
 			_changes.Enqueue(change);
-			_sync.Set();
+			_lock.Release();
 		}
 
-		void ProcessQueue()
+		async void ProcessQueue()
 		{
-			while (!_tokenSource.IsCancellationRequested)
+			while (!_cancellation.IsCancellationRequested)
 			{
 				while(_changes.TryDequeue(out var change))
 				{
@@ -66,8 +63,7 @@ namespace SharpMap.Server
 
 				try
 				{
-					_sync.Reset();
-					_sync.Wait(_tokenSource.Token);
+					await _lock.WaitAsync(_cancellation.Token);
 				}
 				catch (OperationCanceledException) { }
 			}
@@ -75,11 +71,11 @@ namespace SharpMap.Server
 
 		public override void Dispose()
 		{
-			_tokenSource.Cancel();
-			_changeReader?.Join();
+			_cancellation.Cancel();
+			_queueReader?.Wait();
 
-			_sync.Dispose();
-			_tokenSource.Dispose();
+			_lock.Dispose();
+			_cancellation.Dispose();
 			base.Dispose();
 
 			GC.SuppressFinalize(this);
